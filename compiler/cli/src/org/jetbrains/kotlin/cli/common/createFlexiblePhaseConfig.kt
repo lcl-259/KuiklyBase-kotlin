@@ -28,6 +28,7 @@ fun createFlexiblePhaseConfig(
         dumpOnlyFqName = arguments.dumpOnlyFqName,
         dumpToDirectory = arguments.dumpDirectory,
         needProfiling = arguments.profilePhases,
+        profilingOutputFile = arguments.profilePhasesOutput,
         checkConditions = arguments.checkPhaseConditions,
         checkStickyConditions = arguments.checkStickyPhaseConditions,
     )

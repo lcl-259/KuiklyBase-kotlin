@@ -83,7 +83,67 @@ internal class PhaseEngine<C : PhaseContext>(
                     error("Compiler was disabled")
                 }
             }
+
+            // Record total compilation time
+            val compilationStartTime = System.currentTimeMillis()
             topLevelPhase.invoke(phaseConfig, phaserState, context, Unit)
+            val compilationEndTime = System.currentTimeMillis()
+            val totalCompilationTimeMs = compilationEndTime - compilationStartTime
+
+            // Write phase profiling data to file if requested
+            if (phaseConfig.needProfiling) {
+                val baseOutputPath = phaseConfig.profilingOutputFile
+                if (baseOutputPath != null && phaserState.profilingData.isNotEmpty()) {
+                    // Generate Kotlin phases output file name
+                    val kotlinPhasesFile = generateProfilingFileName(baseOutputPath, "kotlin_phases")
+                    try {
+                        java.io.File(kotlinPhasesFile).bufferedWriter().use { writer ->
+                            writer.write("Kotlin Phase Profiling Results\n")
+                            writer.write("=" .repeat(80) + "\n\n")
+
+                            var totalTime = 0L
+                            phaserState.profilingData.forEach { data ->
+                                totalTime += data.durationMs
+                            }
+
+                            writer.write("Total Time: $totalTime ms\n\n")
+                            writer.write(String.format("%-50s %10s %8s\n", "Phase Description", "Time (ms)", "Percent"))
+                            writer.write("-".repeat(80) + "\n")
+
+                            phaserState.profilingData.forEach { data ->
+                                val indent = "  ".repeat(data.depth)
+                                val percent = if (totalTime > 0) String.format("%.1f%%", data.durationMs * 100.0 / totalTime) else "0.0%"
+                                writer.write(String.format("%-50s %10d %8s\n",
+                                    "$indent${data.phaseDescription}", data.durationMs, percent))
+                            }
+                        }
+                        println("Kotlin phase profiling data written to: $kotlinPhasesFile")
+                    } catch (e: Exception) {
+                        println("Failed to write Kotlin phase profiling data to $kotlinPhasesFile: ${e.message}")
+                    }
+
+                    // Write compilation task timing data
+                    val gradleTasksFile = generateProfilingFileName(baseOutputPath, "gradle_tasks")
+                    try {
+                        java.io.File(gradleTasksFile).bufferedWriter().use { writer ->
+                            writer.write("Compilation Task Profiling Results\n")
+                            writer.write("=" .repeat(80) + "\n\n")
+
+                            writer.write(String.format("%-50s %10s\n", "Task Description", "Time (ms)"))
+                            writer.write("-".repeat(80) + "\n")
+                            writer.write(String.format("%-50s %10d\n",
+                                "Total Kotlin/Native Compilation", totalCompilationTimeMs))
+                        }
+                        println("Compilation task profiling data written to: $gradleTasksFile")
+                    } catch (e: Exception) {
+                        println("Failed to write compilation task profiling data to $gradleTasksFile: ${e.message}")
+                    }
+                }
+            }
+        }
+
+        internal fun generateProfilingFileName(outputDir: String, suffix: String): String {
+            return "$outputDir${java.io.File.separator}${suffix}.txt"
         }
     }
 

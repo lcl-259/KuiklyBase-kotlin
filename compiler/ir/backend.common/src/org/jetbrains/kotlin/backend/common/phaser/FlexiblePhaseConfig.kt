@@ -21,6 +21,7 @@ class FlexiblePhaseConfig(
     override val dumpToDirectory: String? = null,
     override val dumpOnlyFqName: String? = null,
     override val needProfiling: Boolean = false,
+    override val profilingOutputFile: String? = null,
     override val checkConditions: Boolean = false,
     override val checkStickyConditions: Boolean = false
 ) : PhaseConfigurationService {

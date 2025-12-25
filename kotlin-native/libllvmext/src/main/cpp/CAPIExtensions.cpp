@@ -13,6 +13,9 @@
 #include <llvm/Transforms/Utils/Cloning.h>
 #include <llvm/Transforms/Instrumentation/ThreadSanitizer.h>
 #include <llvm/Support/Timer.h>
+#include <llvm/Support/FileSystem.h>
+#include <llvm/Support/raw_ostream.h>
+#include <system_error>
 
 using namespace llvm;
 
@@ -73,6 +76,20 @@ void LLVMSetTimePasses(int enabled) {
 
 void LLVMPrintAllTimersToStdOut() {
     llvm::TimerGroup::printAll(llvm::outs());
+}
+
+int LLVMPrintAllTimersToFile(const char* filePath) {
+    std::error_code EC;
+    llvm::raw_fd_ostream fileStream(filePath, EC, llvm::sys::fs::OF_None);
+
+    if (EC) {
+        return 1; // Error opening file
+    }
+
+    llvm::TimerGroup::printAll(fileStream);
+    fileStream.flush();
+
+    return 0; // Success
 }
 
 void LLVMClearAllTimers() {

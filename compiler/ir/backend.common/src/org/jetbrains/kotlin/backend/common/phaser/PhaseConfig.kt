@@ -22,6 +22,7 @@ class PhaseConfigBuilder(private val compoundPhase: CompilerPhase<*, *, *>) {
     val toValidateStateBefore = mutableSetOf<AnyNamedPhase>()
     val toValidateStateAfter = mutableSetOf<AnyNamedPhase>()
     var needProfiling = false
+    var profilingOutputFile: String? = null
     var checkConditions = false
     var checkStickyConditions = false
 
@@ -29,7 +30,7 @@ class PhaseConfigBuilder(private val compoundPhase: CompilerPhase<*, *, *>) {
         compoundPhase, compoundPhase.toPhaseMap(), enabled,
         verbose, toDumpStateBefore, toDumpStateAfter, dumpToDirectory, dumpOnlyFqName,
         toValidateStateBefore, toValidateStateAfter,
-        needProfiling, checkConditions, checkStickyConditions
+        needProfiling, profilingOutputFile, checkConditions, checkStickyConditions
     )
 }
 
@@ -49,6 +50,7 @@ class PhaseConfig(
     private val toValidateStateBefore: Set<AnyNamedPhase> = emptySet(),
     private val toValidateStateAfter: Set<AnyNamedPhase> = emptySet(),
     override val needProfiling: Boolean = false,
+    override val profilingOutputFile: String? = null,
     override val checkConditions: Boolean = false,
     override val checkStickyConditions: Boolean = false
 ) : PhaseConfigurationService {
@@ -70,7 +72,7 @@ class PhaseConfig(
         checkStickyConditions: Boolean = false,
     ) : this(
         compoundPhase, phases, initiallyEnabled, verbose, toDumpStateBefore, toDumpStateAfter, dumpToDirectory, dumpOnlyFqName,
-        toValidateStateBefore, toValidateStateAfter, needProfiling, checkConditions, checkStickyConditions
+        toValidateStateBefore, toValidateStateAfter, needProfiling, null, checkConditions, checkStickyConditions
     )
 
     fun toBuilder() = PhaseConfigBuilder(compoundPhase).also {
@@ -83,6 +85,7 @@ class PhaseConfig(
         it.toValidateStateBefore.addAll(toValidateStateBefore)
         it.toValidateStateAfter.addAll(toValidateStateAfter)
         it.needProfiling = needProfiling
+        it.profilingOutputFile = profilingOutputFile
         it.checkConditions = checkConditions
         it.checkStickyConditions = checkStickyConditions
     }

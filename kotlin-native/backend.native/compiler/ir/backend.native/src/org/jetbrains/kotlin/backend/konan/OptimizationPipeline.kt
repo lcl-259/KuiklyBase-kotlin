@@ -44,6 +44,7 @@ data class LlvmPipelineConfig(
         val objCPasses: Boolean,
         val inlineThreshold: Int?,
         val timePasses: Boolean = false,
+        val llvmPassesOutputFile: String? = null,
 )
 
 private fun getCpuModel(context: PhaseContext): String {
@@ -109,6 +110,7 @@ internal fun createLTOFinalPipelineConfig(
         targetTriple: String,
         closedWorld: Boolean,
         timePasses: Boolean = false,
+        llvmPassesOutputFile: String? = null,
 ): LlvmPipelineConfig {
     val config = context.config
     val target = config.target
@@ -169,6 +171,7 @@ internal fun createLTOFinalPipelineConfig(
             objcPasses,
             inlineThreshold,
             timePasses = timePasses,
+            llvmPassesOutputFile = llvmPassesOutputFile,
     )
 }
 
@@ -234,7 +237,35 @@ abstract class LlvmOptimizationPipeline(
             }
             LLVMRunPassManager(passManager, llvmModule)
             if (config.timePasses) {
-                LLVMPrintAllTimersToStdOut()
+                val outputFile = config.llvmPassesOutputFile
+                if (outputFile != null) {
+                    try {
+                        // Add pipeline name and timestamp to avoid overwriting previous results
+                        val timestamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss_SSS").format(java.util.Date())
+                        val sanitizedPipelineName = pipelineName.lowercase().replace(" ", "_")
+                        val file = java.io.File(outputFile)
+                        val parent = file.parent
+                        val nameWithoutExt = file.nameWithoutExtension
+                        val ext = file.extension
+                        val timestampedFile = if (ext.isNotEmpty()) {
+                            "$parent${java.io.File.separator}${nameWithoutExt}_${sanitizedPipelineName}_${timestamp}.$ext"
+                        } else {
+                            "${outputFile}_${sanitizedPipelineName}_${timestamp}.txt"
+                        }
+
+                        // Write LLVM timing results directly to file using native API
+                        val result = LLVMPrintAllTimersToFile(timestampedFile)
+                        if (result == 0) {
+                            println("LLVM pass profiling data written to: $timestampedFile")
+                        } else {
+                            println("Failed to write LLVM pass profiling data to $timestampedFile")
+                        }
+                    } catch (e: Exception) {
+                        println("Error writing LLVM pass profiling data: ${e.message}")
+                    }
+                } else {
+                    LLVMPrintAllTimersToStdOut()
+                }
                 LLVMClearAllTimers()
             }
         } finally {

@@ -53,6 +53,7 @@ fun createPhaseConfig(
         toValidateStateBefore,
         toValidateStateAfter,
         needProfiling,
+        arguments.profilePhasesOutput,
         checkConditions,
         checkStickyConditions
     ).also {

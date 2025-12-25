@@ -33,6 +33,10 @@ void LLVMSetTimePasses(int enabled);
 /// Print timing results. Useful in combination with LLVMSetTimePasses.
 void LLVMPrintAllTimersToStdOut();
 
+/// Print timing results to a file. Useful in combination with LLVMSetTimePasses.
+/// Returns 0 on success, non-zero on error.
+int LLVMPrintAllTimersToFile(const char* filePath);
+
 /// Clear all LLVM timers. Allows avoiding automatic printing on shutdown
 void LLVMClearAllTimers();
 

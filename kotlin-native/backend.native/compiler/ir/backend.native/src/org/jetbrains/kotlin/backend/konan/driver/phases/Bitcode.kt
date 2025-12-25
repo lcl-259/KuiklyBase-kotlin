@@ -147,11 +147,17 @@ internal val PrintBitcodePhase = createSimpleNamedCompilerPhase<PhaseContext, LL
 )
 
 internal fun <T : BitcodePostProcessingContext> PhaseEngine<T>.runBitcodePostProcessing() {
+    val baseOutputPath = context.config.flexiblePhaseConfig.profilingOutputFile
+    val llvmPassesFile = if (baseOutputPath != null) {
+        PhaseEngine.generateProfilingFileName(baseOutputPath, "llvm_passes")
+    } else null
+
     val optimizationConfig = createLTOFinalPipelineConfig(
             context,
             context.llvm.targetTriple,
             closedWorld = context.config.isFinalBinary,
             timePasses = context.config.flexiblePhaseConfig.needProfiling,
+            llvmPassesOutputFile = llvmPassesFile,
     )
     useContext(OptimizationState(context.config, optimizationConfig)) {
         val module = this@runBitcodePostProcessing.context.llvmModule

@@ -56,6 +56,12 @@ interface PhaseConfigurationService {
     val needProfiling: Boolean
 
     /**
+     * Returns a path to a file that should store phase profiling data.
+     * null if profiling output is not set.
+     */
+    val profilingOutputFile: String?
+
+    /**
      * Returns true if compiler should check pre- and post-conditions of compiler phases.
      */
     val checkConditions: Boolean

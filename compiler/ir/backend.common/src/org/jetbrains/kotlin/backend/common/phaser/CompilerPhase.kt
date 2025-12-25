@@ -9,6 +9,16 @@ import org.jetbrains.kotlin.backend.common.LoggingContext
 import kotlin.system.measureTimeMillis
 
 /**
+ * Stores profiling information for a single phase execution.
+ */
+data class PhaseProfilingData(
+    val phaseName: String,
+    val phaseDescription: String,
+    val depth: Int,
+    val durationMs: Long
+)
+
+/**
  * Represents global compilation context and stores information about phases that were executed.
  *
  * @property alreadyDone A set of already executed phases.
@@ -16,18 +26,20 @@ import kotlin.system.measureTimeMillis
  * @property phaseCount A unique ID that can show the order in which phases were executed.
  * @property stickyPostconditions A set of conditions that must be checked after each phase.
  * When a condition is added into [stickyPostconditions], it will be executed each time some phase is executed, until we change [Data].
+ * @property profilingData A list of profiling data collected during phase execution.
  */
 class PhaserState<Data>(
     val alreadyDone: MutableSet<AnyNamedPhase> = mutableSetOf(),
     var depth: Int = 0,
     var phaseCount: Int = 0,
-    val stickyPostconditions: MutableSet<Checker<Data>> = mutableSetOf()
+    val stickyPostconditions: MutableSet<Checker<Data>> = mutableSetOf(),
+    val profilingData: MutableList<PhaseProfilingData> = mutableListOf()
 ) {
-    fun copyOf() = PhaserState(alreadyDone.toMutableSet(), depth, phaseCount, stickyPostconditions)
+    fun copyOf() = PhaserState(alreadyDone.toMutableSet(), depth, phaseCount, stickyPostconditions, profilingData)
 }
 
 // Copy state, forgetting the sticky postconditions (which will not be applicable to the new type)
-fun <Input, Output> PhaserState<Input>.changePhaserStateType() = PhaserState<Output>(alreadyDone, depth, phaseCount, mutableSetOf())
+fun <Input, Output> PhaserState<Input>.changePhaserStateType() = PhaserState<Output>(alreadyDone, depth, phaseCount, mutableSetOf(), profilingData)
 
 inline fun <R, D> PhaserState<D>.downlevel(nlevels: Int, block: () -> R): R {
     depth += nlevels
@@ -138,7 +150,11 @@ abstract class AbstractNamedCompilerPhase<in Context : LoggingContext, Input, Ou
                 phaseBody(phaseConfig, phaserState, context, source)
             }
         }
-        // TODO: use a proper logger
+
+        // Store profiling data
+        phaserState.profilingData.add(PhaseProfilingData(name, description, phaserState.depth, msec))
+
+        // Also print to console for backward compatibility
         println("${"\t".repeat(phaserState.depth)}$description: $msec msec")
         return result!!
     }

@@ -477,6 +477,17 @@ This flag is deprecated and will soon be removed in favor of '-Xverify-ir-visibi
         }
 
     @Argument(
+        value = "-Xprofile-phases-output",
+        valueDescription = "<directory>",
+        description = "Write phase profiling data to the specified directory."
+    )
+    var profilePhasesOutput: String? = null
+        set(value) {
+            checkFrozen()
+            field = if (value.isNullOrEmpty()) null else value
+        }
+
+    @Argument(
         value = "-Xcheck-phase-conditions",
         description = "Check pre- and postconditions of IR lowering phases."
     )
