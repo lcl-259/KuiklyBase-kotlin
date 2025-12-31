@@ -26,8 +26,15 @@ echo "cd $ROOT_DIR"
 STEP=1
 STEP_MESSAGE=""
 
+# Nexus 仓库配置
+# URL 在目标仓库那里可以复制，最后一层是 id
+NEXUS_URL=/path/to/Nexus/repository
+NEXUS_REPO_ID=/Nexus/id
+NEXUS_USERNAME=XXXX
+NEXUS_PASSWORD=XXXX
+
 function stepBegin() {
-  STEP_MESSAGE=$1  
+  STEP_MESSAGE=$1
   echo ":::: Step $STEP: $STEP_MESSAGE"
 }
 
@@ -75,14 +82,17 @@ function GRADLE_NATIVE() {
       -Pbootstrap.local.version="$DEPLOY_VERSION" \
       -Pkonan.xcodeForSimdOverlay="/Applications/Xcode-15.0.app" \
       -Pkonan.sysrootForSimdOverlay="$SCRIPT_DIR/internal/simdOverlay" \
+      -Pkotlin.build.deploy-url=$NEXUS_URL \
+      -Pkotlin.build.deploy-username=$NEXUS_USERNAME \
+      -Pkotlin.build.deploy-password=$NEXUS_PASSWORD \
       "$@"
 }
 
 export JDK_18=$(/usr/libexec/java_home -v 1.8)
-if [ -z "$JDK_18" ]; then 
+if [ -z "$JDK_18" ]; then
   echo "JDK 1.8 is required. Please download and set JDK_18 to the home of JDK 1.8. Exiting."
   exit 1
-fi 
+fi
 
 readHostArch
 DEPLOY_VERSION=2.0.255-SNAPSHOT
@@ -95,14 +105,22 @@ stepBegin "Publish boostrap Kotlin libs to local dir: 'build/repo'."
 ./gradlew publish install -Pkotlin.native.enabled=false -PdeployVersion=$DEPLOY_VERSION -Pversions.kotlin-native=$DEPLOY_VERSION -PkonanVersion=$DEPLOY_VERSION -Pbootstrap.local=false
 stepEnd
 
-stepBegin "Build maven part and publish."
+stepBegin "Publish boostrap Kotlin libs to : 'nexus'."
+./gradlew publish install -Pkotlin.native.enabled=false -PdeployVersion=$DEPLOY_VERSION -Pversions.kotlin-native=$DEPLOY_VERSION -PkonanVersion=$DEPLOY_VERSION -Pbootstrap.local=false -Pkotlin.build.deploy-url=$NEXUS_URL -Pkotlin.build.deploy-username=$NEXUS_USERNAME -Pkotlin.build.deploy-password=$NEXUS_PASSWORD
+stepEnd
+
+stepBegin "Publish maven part to Nexus repository."
 $ROOT_DIR/libraries/mvnw -DnewVersion=$DEPLOY_VERSION -DgenerateBackupPoms=false -DprocessAllModules=true -f $ROOT_DIR/libraries/pom.xml versions:set
 $ROOT_DIR/libraries/mvnw \
+  -s $ROOT_DIR/libraries/maven-settings.xml \
   -f $ROOT_DIR/libraries/pom.xml \
-  clean install -DskipTests \
-  -Ddeploy-url=file://$ROOT_DIR/build/repo \
-  -Ddeploy-snapshot-repo=local \
-  -Ddeploy-snapshot-url=file://$ROOT_DIR/build/repo
+  clean deploy -DskipTests \
+  -Ddeploy-url=$NEXUS_URL \
+  -Ddeploy-snapshot-repo=$NEXUS_REPO_ID \
+  -Ddeploy-snapshot-url=$NEXUS_URL \
+  -Dnexus.repo.id=$NEXUS_REPO_ID \
+  -Dnexus.username=$NEXUS_USERNAME \
+  -Dnexus.password=$NEXUS_PASSWORD
 stepEnd
 
 stepBegin "Clean and build Kotlin Native compiler."

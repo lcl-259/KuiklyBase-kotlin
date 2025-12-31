@@ -187,6 +187,10 @@ fun Project.configureDefaultPublishing(
                         this.password = password
                     }
                 }
+                // 允许使用不安全的 HTTP 协议（用于本地 Nexus）
+                if (url.scheme == "http") {
+                    isAllowInsecureProtocol = true
+                }
             }
         }
     }
