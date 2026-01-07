@@ -24,6 +24,19 @@ plugins {
     id "kotlin-daemon-config"
 }
 
+buildCache {
+    local {
+        enabled = true
+    }
+
+    remote(HttpBuildCache) {
+        url = 'http://localhost:5071/cache/'
+        push = true  // 本地测试时设为 true，生产环境改为 System.getenv("CI") != null
+        enabled = true
+        allowInsecureProtocol = true  // 允许 HTTP（必须）
+    }
+}
+
 File versionPropertiesFile = new File(rootProject.projectDir, "gradle/versions.properties")
 def versionProperties = new Properties()
 versionPropertiesFile.withInputStream {
