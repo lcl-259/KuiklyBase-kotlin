@@ -289,13 +289,35 @@ internal fun String?.toFileAndFolder(config: KonanConfig): FileAndFolder {
     this ?: return FileAndFolder.NOFILE
     val file = File(this).absoluteFile
     var parent = file.parent
+    
+    // 检测并移除 Gradle daemon 路径前缀
+    // Klib 中存储的是相对路径（如 app/src/...），但在链接时被解析到了 Gradle daemon 的工作目录
+    // 例如：/Users/lcl/.gradle/daemon/8.5/app/src/... -> app/src/...
+    val daemonPattern = Regex(".*/\\.gradle/daemon/[^/]+/(.+)")
+    val daemonMatch = daemonPattern.matchEntire(parent)
+    if (daemonMatch != null) {
+        // 提取相对路径部分
+        parent = daemonMatch.groupValues[1]
+        // 如果开头不是 /，确保它是相对路径
+        if (!parent.startsWith("/")) {
+            // 保持相对路径
+        } else {
+            // 不应该发生，但以防万一
+            parent = parent.removePrefix("/")
+        }
+    }
+    
+    // 步骤2: 应用 DEBUG_PREFIX_MAP 路径映射
+    // 用途：处理本地源文件（编译器自身 + 当前编译的项目）
     config.configuration.get(KonanConfigKeys.DEBUG_PREFIX_MAP)?.let { debugPrefixMap ->
         for ((key, value) in debugPrefixMap) {
             if (parent.startsWith(key)) {
                 parent = value + parent.removePrefix(key)
+                break
             }
         }
     }
+    
     return FileAndFolder(file.name, parent)
 }
 

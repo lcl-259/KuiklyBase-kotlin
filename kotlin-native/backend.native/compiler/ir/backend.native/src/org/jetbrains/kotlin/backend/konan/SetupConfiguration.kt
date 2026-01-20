@@ -165,7 +165,104 @@ fun CompilerConfiguration.setupFromArguments(arguments: K2NativeCompilerArgument
 
     put(DEBUG_INFO_VERSION, arguments.debugInfoFormatVersion.toInt())
     put(OBJC_GENERICS, !arguments.noObjcGenerics)
-    put(DEBUG_PREFIX_MAP, parseDebugPrefixMap(arguments, this@setupFromArguments))
+
+    // 自动设置 klib 相对路径基准，生成的 klib 中存储相对路径而不是绝对路径，实现跨用户调试
+    // 用户可以通过 -Xdebug-prefix-map 为生成的 so 文件添加自定义路径前缀
+    if (this@setupFromArguments.get(KlibConfigurationKeys.KLIB_RELATIVE_PATH_BASES).isNullOrEmpty()) {
+        try {
+            // 推断项目根目录：优先从输出文件路径，其次从源文件路径，最后从当前工作目录
+            val inferredPath = arguments.outputName?.let { File(it).absoluteFile }
+                ?: kotlinSourceRoots.firstOrNull()?.let { File(it.path).absoluteFile }
+                ?: File(".").absoluteFile
+
+            var path = inferredPath
+
+            // 优先查找 .git 目录（真正的项目根目录），找不到则找最外层的 settings.gradle，这样可以避免被嵌套子项目的 settings.gradle 误导
+            
+            // 步骤1：先向上查找 .git 目录
+            var gitRoot: String? = null
+            var tempPath = path
+            var depth = 0
+            
+            while (depth < 15) {
+                try {
+                    val parentPath = tempPath.parent
+                    if (File(parentPath, ".git").exists) {
+                        gitRoot = parentPath
+                        println("[KuiklyBase] 找到 .git 目录：$gitRoot")
+                        break
+                    }
+                    tempPath = File(parentPath).absoluteFile
+                    depth++
+                } catch (e: NullPointerException) {
+                    break
+                }
+            }
+            
+            // 如果找到了 .git，直接使用
+            if (gitRoot != null) {
+                path = File(gitRoot).absoluteFile
+                println("[KuiklyBase] 使用 Git 仓库根目录作为项目根目录")
+            } else {
+                // 步骤2：没有 .git，查找最外层的 settings.gradle
+                println("[KuiklyBase] 未找到 .git，查找最外层的 settings.gradle")
+                var outermostSettings: String? = null
+                tempPath = path
+                depth = 0
+                
+                while (depth < 15) {
+                    try {
+                        val parentPath = tempPath.parent
+                        val hasSettingsGradle = File(parentPath, "settings.gradle").exists
+                        val hasSettingsGradleKts = File(parentPath, "settings.gradle.kts").exists
+                        
+                        if (tempPath.name != "build" && (hasSettingsGradle || hasSettingsGradleKts)) {
+                            // 记录这个位置，但继续向上查找，找到最外层的
+                            outermostSettings = parentPath
+                            println("[KuiklyBase] 找到 settings.gradle：$parentPath")
+                        }
+                        
+                        tempPath = File(parentPath).absoluteFile
+                        depth++
+                    } catch (e: NullPointerException) {
+                        break
+                    }
+                }
+                
+                // 使用找到的最外层 settings.gradle 位置
+                if (outermostSettings != null) {
+                    path = File(outermostSettings).absoluteFile
+                    println("[KuiklyBase] 使用最外层 settings.gradle 位置作为项目根目录")
+                } else {
+                    println("[KuiklyBase] 未找到 settings.gradle，使用推断路径")
+                }
+            }
+
+            val projectRoot = path.absolutePath
+            
+            // 统一使用父目录作为基准（方案B）
+            // 这样所有项目的相对路径都会包含项目名，路径更清晰，避免冲突
+            val klibBase = File(projectRoot).parent ?: projectRoot
+            
+            println("[KuiklyBase] 项目根目录：$projectRoot")
+            println("[KuiklyBase] Klib 相对路径基准：$klibBase")
+            println("[KuiklyBase] 所有路径将包含项目名（例如：kn_samples/dep-lib/src/...）")
+            println("[KuiklyBase] 提示：可以使用 -Xdebug-prefix-map 为路径添加自定义前缀")
+            
+            put(KlibConfigurationKeys.KLIB_RELATIVE_PATH_BASES, listOf(klibBase))
+        } catch (e: Exception) {
+            println("[KuiklyBase] 设置 klib 相对路径基准失败：${e.message}")
+            e.printStackTrace()
+        }
+    }
+
+    // 用户可以通过 -Xdebug-prefix-map 为相对路径添加自定义前缀
+    // 例如：-Xdebug-prefix-map=kn_samples=/workspace/kn_samples
+    val userPrefixMap = parseDebugPrefixMap(arguments, this@setupFromArguments)
+    if (userPrefixMap.isNotEmpty()) {
+        put(DEBUG_PREFIX_MAP, userPrefixMap)
+        println("[KuiklyBase] 已应用用户自定义路径映射：$userPrefixMap")
+    }
 
     val libraryToAddToCache = parseLibraryToAddToCache(arguments, this@setupFromArguments, outputKind)
     if (libraryToAddToCache != null && !arguments.outputName.isNullOrEmpty())
