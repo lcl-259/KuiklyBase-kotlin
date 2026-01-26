@@ -20,6 +20,56 @@ import org.jetbrains.kotlin.backend.konan.serialization.SerializedInlineFunction
 import org.jetbrains.kotlin.ir.declarations.*
 import org.jetbrains.kotlin.ir.expressions.IrSuspensionPoint
 
+/**
+ * LLVM 链接时优化 (LTO) 模式
+ */
+enum class LLVMLTOMode {
+    NONE,  // 不使用 LTO
+    FULL,  // 传统的完整 LTO（单体优化）
+    THIN   // ThinLTO（分布式、可并行的 LTO）
+}
+
+/**
+ * 表示 ThinLTO 处理的单个 bitcode 模块
+ * 每个模块对应一个 Kotlin 源文件或依赖项
+ */
+internal data class BitcodeModule(
+    val identifier: String,          // 唯一标识符（例如：文件路径或模块名称）
+    val llvmModule: LLVMModuleRef,   // LLVM 模块引用
+    val bitcodeData: ByteArray? = null // 序列化的 bitcode，用于线程安全处理
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is BitcodeModule) return false
+
+        if (identifier != other.identifier) return false
+        if (llvmModule != other.llvmModule) return false
+        if (bitcodeData != null) {
+            if (other.bitcodeData == null) return false
+            if (!bitcodeData.contentEquals(other.bitcodeData)) return false
+        } else if (other.bitcodeData != null) return false
+
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = identifier.hashCode()
+        result = 31 * result + llvmModule.hashCode()
+        result = 31 * result + (bitcodeData?.contentHashCode() ?: 0)
+        return result
+    }
+}
+
+/**
+ * 保存 ThinLTO 模式下延迟链接的模块和元数据
+ * 模块保持独立状态，直到 ThinLTO 优化之后才链接
+ */
+internal data class DeferredLinkageState(
+    val runtimeModules: List<BitcodeModule>,     // 运行时和标准库模块
+    val additionalModules: List<BitcodeModule>,  // 用户代码和依赖项
+    val thinLtoEnabled: Boolean = false          // 是否启用 ThinLTO
+)
+
 internal class InlineFunctionOriginInfo(val irFunction: IrFunction, val irFile: IrFile, val startOffset: Int, val endOffset: Int)
 
 internal class FileLowerState {
@@ -76,6 +126,12 @@ internal class NativeGenerationState(
     val inlineFunctionOrigins = mutableMapOf<IrFunction, InlineFunctionOriginInfo>()
     val liveVariablesAtSuspensionPoints = mutableMapOf<IrSuspensionPoint, List<IrVariable>>()
     val visibleVariablesAtSuspensionPoints = mutableMapOf<IrSuspensionPoint, List<IrVariable>>()
+
+    // ThinLTO 相关状态
+    // 保存延迟链接的模块状态，在 ThinLTO 优化之前收集，优化之后链接
+    var deferredLinkageState: DeferredLinkageState? = null
+    // 保存优化后的 bitcode 文件路径列表，用于增量链接
+    var thinLtoOptimizedBitcodeFiles: List<String>? = null
 
     private val localClassNames = mutableMapOf<IrAttributeContainer, String>()
     fun getLocalClassName(container: IrAttributeContainer): String? = localClassNames[container.attributeOwnerId]

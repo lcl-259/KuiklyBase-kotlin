@@ -130,24 +130,125 @@ private fun collectLlvmModules(generationState: NativeGenerationState, generated
     )
 }
 
-private fun linkAllDependencies(generationState: NativeGenerationState, generatedBitcodeFiles: List<String>) {
-    val (runtimeModules, additionalModules) = collectLlvmModules(generationState, generatedBitcodeFiles)
-    // TODO: Possibly slow, maybe to a separate phase?
-    val optimizedRuntimeModules = linkRuntimeModules(generationState, runtimeModules)
+/**
+ * 收集 LLVM 模块并包装成 BitcodeModule 用于 ThinLTO 处理
+ * 与 collectLlvmModules 不同，这保持模块独立而不是链接它们
+ */
+private fun collectBitcodeModules(generationState: NativeGenerationState, generatedBitcodeFiles: List<String>): Pair<List<BitcodeModule>, List<BitcodeModule>> {
+    val config = generationState.config
 
-    // When the main module `generationState.llvmModule` is very large it is much faster to
-    // link all the auxiliary modules together first before linking with the main module.
-    val linkedModules = (optimizedRuntimeModules + additionalModules).reduceOrNull { acc, module ->
-        val failed = llvmLinkModules2(generationState, acc, module)
-        if (failed != 0) {
-            error("Failed to link ${module.getName()}")
+    val (bitcodePartOfStdlib, bitcodeLibraries) = generationState.dependenciesTracker.bitcodeToLink
+            .partition { it.isNativeStdlib && generationState.producedLlvmModuleContainsStdlib }
+            .toList()
+            .map { libraries ->
+                libraries.flatMap { it.bitcodePaths }.filter { it.isBitcode }
+            }
+
+    val nativeLibraries = config.nativeLibraries + config.launcherNativeLibraries
+            .takeIf { config.produce == CompilerOutputKind.PROGRAM }.orEmpty()
+    val additionalBitcodeFilesToLink = generationState.llvm.additionalProducedBitcodeFiles
+    val exceptionsSupportNativeLibrary = listOf(config.exceptionsSupportNativeLibrary)
+            .takeIf { config.produce == CompilerOutputKind.DYNAMIC_CACHE }.orEmpty()
+    val xcTestRunnerNativeLibrary = listOf(config.xcTestLauncherNativeLibrary)
+            .takeIf { config.produce == CompilerOutputKind.TEST_BUNDLE }.orEmpty()
+    val additionalBitcodeFiles = nativeLibraries +
+            generatedBitcodeFiles +
+            additionalBitcodeFilesToLink +
+            bitcodeLibraries +
+            exceptionsSupportNativeLibrary +
+            xcTestRunnerNativeLibrary
+
+    val runtimeNativeLibraries = config.runtimeNativeLibraries
+
+    fun parseBitcodeModules(files: List<String>): List<BitcodeModule> = files.mapIndexed { index, bitcodeFile ->
+        val parsedModule = parseBitcodeFile(generationState.llvmContext, bitcodeFile)
+        if (!generationState.shouldUseDebugInfoFromNativeLibs()) {
+            LLVMStripModuleDebugInfo(parsedModule)
         }
-        return@reduceOrNull acc
+        BitcodeModule(
+            identifier = File(bitcodeFile).nameWithoutExtension + "_$index",
+            llvmModule = parsedModule,
+            bitcodeData = null // 如果需要，稍后序列化
+        )
     }
-    linkedModules?.let {
-        val failed = llvmLinkModules2(generationState, generationState.llvmModule, it)
-        if (failed != 0) {
-            error("Failed to link runtime and additional modules into main module")
+
+    val runtimeModules = parseBitcodeModules(
+            (runtimeNativeLibraries + bitcodePartOfStdlib)
+                    .takeIf { generationState.shouldLinkRuntimeNativeLibraries }.orEmpty()
+    )
+    val additionalModules = parseBitcodeModules(additionalBitcodeFiles)
+
+    // 如果有运行时模块，添加运行时常量模块（类似 Full LTO）
+    val runtimeModulesWithConstants = if (runtimeModules.isNotEmpty()) {
+        runtimeModules + BitcodeModule(
+            identifier = "runtime_constants",
+            llvmModule = generationState.generateRuntimeConstantsModule(),
+            bitcodeData = null
+        )
+    } else {
+        runtimeModules
+    }
+
+    // 如果需要，添加 ObjC 运行时模块（类似 Full LTO）
+    val additionalModulesWithObjC = patchObjCRuntimeModule(generationState)?.let { objcModule ->
+        additionalModules + BitcodeModule(
+            identifier = "objc_runtime",
+            llvmModule = objcModule,
+            bitcodeData = null
+        )
+    } ?: additionalModules
+
+    return Pair(runtimeModulesWithConstants, additionalModulesWithObjC)
+}
+
+private fun linkAllDependencies(generationState: NativeGenerationState, generatedBitcodeFiles: List<String>) {
+    System.err.println("【调试信息】 链接所有依赖: 开始")
+
+    val config = generationState.config
+
+    // 检查是否启用 ThinLTO 模式
+    val useThinLTO = config.llvmLTOMode == LLVMLTOMode.THIN
+
+    System.err.println("【调试信息】 链接所有依赖: 使用ThinLTO = $useThinLTO")
+    System.err.println("【调试信息】 链接所有依赖: 配置.LTO模式 = ${config.llvmLTOMode}")
+    System.err.println("【调试信息】 链接所有依赖: LTO模式.THIN = ${LLVMLTOMode.THIN}")
+
+    if (useThinLTO) {
+        System.err.println("【调试信息】 链接所有依赖: 进入ThinLTO路径")
+        // ThinLTO 路径：收集模块但延迟链接直到 ThinLTO 优化之后
+        val (runtimeModules, additionalModules) = collectBitcodeModules(generationState, generatedBitcodeFiles)
+
+        System.err.println("【调试信息】 链接所有依赖: 已收集 ${runtimeModules.size} 个运行时模块, ${additionalModules.size} 个附加模块")
+
+        // 设置延迟链接状态用于 ThinLTOPhase 使用
+        // 这些模块将在 ThinLTO 优化后链接
+        generationState.deferredLinkageState = DeferredLinkageState(
+            runtimeModules = runtimeModules,
+            additionalModules = additionalModules,
+            thinLtoEnabled = true
+        )
+        System.err.println("【调试信息】 链接所有依赖: 设置延迟链接状态(ThinLTO已启用)")
+    } else {
+        System.err.println("【调试信息】 链接所有依赖: 进入Full LTO / 无LTO路径")
+        // 传统路径：立即链接所有依赖（Full LTO 或无 LTO）
+        val (runtimeModules, additionalModules) = collectLlvmModules(generationState, generatedBitcodeFiles)
+        // TODO: 可能很慢，也许应该放到单独的阶段？
+        val optimizedRuntimeModules = linkRuntimeModules(generationState, runtimeModules)
+
+        // 当主模块 `generationState.llvmModule` 非常大时，先将所有辅助模块链接在一起
+        // 然后再与主模块链接会快得多
+        val linkedModules = (optimizedRuntimeModules + additionalModules).reduceOrNull { acc, module ->
+            val failed = llvmLinkModules2(generationState, acc, module)
+            if (failed != 0) {
+                error("Failed to link ${module.getName()}")
+            }
+            return@reduceOrNull acc
+        }
+        linkedModules?.let {
+            val failed = llvmLinkModules2(generationState, generationState.llvmModule, it)
+            if (failed != 0) {
+                error("Failed to link runtime and additional modules into main module")
+            }
         }
     }
 }

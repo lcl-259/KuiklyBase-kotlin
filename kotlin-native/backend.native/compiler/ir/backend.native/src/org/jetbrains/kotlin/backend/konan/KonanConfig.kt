@@ -252,6 +252,13 @@ class KonanConfig(val project: Project, val configuration: CompilerConfiguration
         configuration.get(BinaryOptions.appStateTracking) ?: AppStateTracking.DISABLED
     }
 
+    // LLVM LTO 模式（默认使用 ThinLTO 以提升编译速度）
+    // ThinLTO 使用 Kotlin 侧并行优化（JVM 线程池）来加速编译
+    // 适配 LLVM 11/12 版本（不支持 LLVMRunPassesParallel API）
+    val llvmLTOMode: LLVMLTOMode by lazy {
+        LLVMLTOMode.THIN  // 默认使用 ThinLTO（流式优化 + 增量链接 + Kotlin 侧并行）
+    }
+
 
     val mimallocUseDefaultOptions: Boolean by lazy {
         configuration.get(BinaryOptions.mimallocUseDefaultOptions) ?: false
