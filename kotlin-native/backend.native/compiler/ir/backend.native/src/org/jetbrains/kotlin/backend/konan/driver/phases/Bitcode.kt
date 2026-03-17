@@ -101,6 +101,12 @@ internal val ThreadSanitizerPhase = optimizationPipelinePass(
         pipeline = ::ThreadSanitizerPipeline,
 )
 
+internal val GCOVProfilingPhase = optimizationPipelinePass(
+        name = "GCOVProfiling",
+        description = "Insert GCOV profiling instrumentation",
+        pipeline = ::GCOVProfilingPipeline,
+)
+
 internal val RemoveRedundantSafepointsPhase = createSimpleNamedCompilerPhase<BitcodePostProcessingContext, Unit>(
         name = "RemoveRedundantSafepoints",
         description = "Remove function prologue safepoints inlined to another function",
@@ -155,6 +161,13 @@ internal fun <T : BitcodePostProcessingContext> PhaseEngine<T>.runBitcodePostPro
     )
     useContext(OptimizationState(context.config, optimizationConfig)) {
         val module = this@runBitcodePostProcessing.context.llvmModule
+
+        // GCOV instrumentation MUST run before optimizations (if enabled)
+        val coverageEnabled = context.config.configuration.get(BinaryOptions.coverage) ?: false
+        if (coverageEnabled) {
+            it.runPhase(GCOVProfilingPhase, module)
+        }
+
         it.runPhase(MandatoryBitcodeLLVMPostprocessingPhase, module)
         it.runPhase(ModuleBitcodeOptimizationPhase, module)
         it.runPhase(LTOBitcodeOptimizationPhase, module)

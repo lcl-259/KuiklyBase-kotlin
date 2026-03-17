@@ -355,6 +355,14 @@ class ThreadSanitizerPipeline(config: LlvmPipelineConfig, logger: LoggingContext
     override val pipelineName = "Thread sanitizer instrumentation"
 }
 
+class GCOVProfilingPipeline(config: LlvmPipelineConfig, logger: LoggingContext? = null) :
+        LlvmOptimizationPipeline(config, logger) {
+    override fun configurePipeline(config: LlvmPipelineConfig, manager: LLVMPassManagerRef, builder: LLVMPassManagerBuilderRef) {
+        LLVMAddGCOVProfilingPass(manager)
+    }
+
+    override val pipelineName = "GCOV profiling instrumentation"
+}
 
 internal fun RelocationModeFlags.currentRelocationMode(context: PhaseContext): RelocationModeFlags.Mode =
         when (determineLinkerOutput(context)) {

@@ -18,3 +18,5 @@ headers =  native_buffer/native_buffer.h native_image/native_image.h \
     native_drawing/drawing_path_effect.h \
     native_buffer/buffer_common.h \
     native_color_space_manager/native_color_space_manager.h
+language = C++
+compilerOpts = -std=c++17

@@ -12,6 +12,7 @@
 #include <llvm/Transforms/ObjCARC.h>
 #include <llvm/Transforms/Utils/Cloning.h>
 #include <llvm/Transforms/Instrumentation/ThreadSanitizer.h>
+#include <llvm/Transforms/Instrumentation.h>
 #include <llvm/Support/Timer.h>
 
 using namespace llvm;
@@ -65,6 +66,10 @@ int LLVMInlineCall(LLVMValueRef call) {
 
 void LLVMAddThreadSanitizerPass(LLVMPassManagerRef PM) {
   unwrap(PM)->add(createThreadSanitizerLegacyPassPass());
+}
+
+void LLVMAddGCOVProfilingPass(LLVMPassManagerRef PM) {
+  unwrap(PM)->add(createGCOVProfilerPass());
 }
 
 void LLVMSetTimePasses(int enabled) {

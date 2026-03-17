@@ -72,6 +72,7 @@ class LinkerArguments(
     val outputDsymBundle: String,
     val mimallocEnabled: Boolean,
     val sanitizer: SanitizerKind? = null,
+    val codeCoverage: Boolean = false,
 )
 
 // TODO: This is for compatibility with CompileToExecutable.kt. Remove after advancing the bootstrap.
@@ -192,6 +193,36 @@ class OhosLinker(targetProperties: OhosConfigurables) : LinkerFlags(targetProper
 
     override fun filterStaticLibraries(binaries: List<String>) = binaries.filter { it.isUnixStaticLib }
 
+    override fun provideCompilerRtLibrary(libraryName: String, isDynamic: Boolean): String? {
+        require(!isDynamic) {
+            "Dynamic compiler rt libraries aren't unsupported"
+        }
+        // Try Kotlin Native LLVM first
+        val clangdir = File("$absoluteLlvmHome/lib/clang/").listFiles.firstOrNull()?.absolutePath
+        if (clangdir != null) {
+            val libdir = File("$clangdir/lib/").listFiles.firstOrNull()?.absolutePath
+            if (libdir != null) {
+                val targetSpecificLib = File("$libdir/libclang_rt.$libraryName-aarch64.a")
+                val lib = if (targetSpecificLib.exists) targetSpecificLib.absolutePath else "$libdir/libclang_rt.$libraryName.a"
+                if (File(lib).exists) {
+                    return lib
+                }
+            }
+        }
+        // Fallback to DevEco Studio SDK (has OHOS-specific profile library)
+        val devecoSdkBase = "/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/native/llvm"
+        if (File(devecoSdkBase).exists) {
+            val devecoClangDir = File("$devecoSdkBase/lib/clang/").listFiles.firstOrNull()?.absolutePath
+            if (devecoClangDir != null) {
+                val ohosLib = File("$devecoClangDir/lib/aarch64-linux-ohos/libclang_rt.$libraryName.a")
+                if (ohosLib.exists) {
+                    return ohosLib.absolutePath
+                }
+            }
+        }
+        return null
+    }
+
     override fun LinkerArguments.finalLinkCommands(): List<Command> {
         require(sanitizer == null) {
             "Sanitizers are unsupported"
@@ -230,6 +261,18 @@ class OhosLinker(targetProperties: OhosConfigurables) : LinkerFlags(targetProper
             +libraries
             +linkerArgs
             +linkerKonanFlags
+
+            // GCOV: Link compiler-rt profile library if code coverage is enabled
+            if (codeCoverage) {
+                val profileLib = provideCompilerRtLibrary("profile")
+                if (profileLib != null) {
+                    +profileLib
+                } else {
+                    // Log warning if library not found
+                    System.err.println("Warning: GCOV runtime library not found")
+                }
+            }
+            
             when (sanitizer) {
                 null -> {}
                 SanitizerKind.ADDRESS -> {

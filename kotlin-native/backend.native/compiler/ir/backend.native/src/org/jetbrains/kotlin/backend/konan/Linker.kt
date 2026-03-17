@@ -148,6 +148,7 @@ internal class Linker(
                     outputDsymBundle = outputFiles.symbolicInfoFile,
                     mimallocEnabled = config.allocationMode == AllocationMode.MIMALLOC,
                     sanitizer = config.sanitizer,
+                    codeCoverage = config.configuration.get(BinaryOptions.coverage) ?: false,
             ).finalLinkCommands()
         }
     }

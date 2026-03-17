@@ -27,6 +27,8 @@ int LLVMInlineCall(LLVMValueRef call);
 
 void LLVMAddThreadSanitizerPass(LLVMPassManagerRef PM);
 
+void LLVMAddGCOVProfilingPass(LLVMPassManagerRef PM);
+
 /// Control LLVM -time-passes flag.
 void LLVMSetTimePasses(int enabled);
 
