@@ -31,10 +31,10 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
 
-      # 列出可用的 Xcode 版本，确认 Xcode-15.0 存在
+      # 列出可用的 Xcode 版本，确认 Xcode_16.0 存在
       - name: 查看可用 Xcode 版本
         run: ls /Applications/ | grep Xcode
 
-      # 用 Xcode 15 工具链编译，避免新版 ld 的兼容性问题
+      # 用 Xcode 16 工具链编译，避免新版 ld 的兼容性问题
       - name: 编译 kotlin-native dist
-        run: DEVELOPER_DIR=/Applications/Xcode-16.0.app/Contents/Developer ./gradlew :kotlin-native:dist
+        run: DEVELOPER_DIR=/Applications/Xcode_16.0.app/Contents/Developer ./gradlew :kotlin-native:dist
