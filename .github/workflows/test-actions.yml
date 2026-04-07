@@ -37,4 +37,4 @@ jobs:
 
       # 用 Xcode 15 工具链编译，避免新版 ld 的兼容性问题
       - name: 编译 kotlin-native dist
-        run: DEVELOPER_DIR=/Applications/Xcode-15.0.app/Contents/Developer ./gradlew :kotlin-native:dist
+        run: DEVELOPER_DIR=/Applications/Xcode-16.0.app/Contents/Developer ./gradlew :kotlin-native:dist
