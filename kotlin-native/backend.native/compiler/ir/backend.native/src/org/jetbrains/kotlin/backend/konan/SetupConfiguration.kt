@@ -316,6 +316,10 @@ fun CompilerConfiguration.setupFromArguments(arguments: K2NativeCompilerArgument
     // region Tencent Code
     put(ENABLE_OBJC_EXPORT_CONFIGURATION, arguments.enableDefaultObjCExport)
     arguments.objCExportConfigurationPath?.let { put(OBJC_EXPORT_CONFIG_FILE_PATH, it) }
+    // PGO Support
+    arguments.profileGenerate?.let { put(PROFILE_GENERATE, it) }
+    arguments.profileUse?.let { put(PROFILE_USE, it) }
+    put(PGO_SAMPLE, arguments.pgoSample)
     // endregion
 
     if (arguments.manifestNativeTargets != null)

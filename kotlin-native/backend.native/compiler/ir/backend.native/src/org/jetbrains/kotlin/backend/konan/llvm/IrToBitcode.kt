@@ -2947,6 +2947,7 @@ internal class CodeGeneratorVisitor(
 
     private fun appendGlobalCtors(ctorFunctions: List<LlvmCallable>) {
         if (context.config.isFinalBinary) {
+            System.err.println("[PGO] appendGlobalCtors called, isFinalBinary=true, produce=${context.config.produce}")
             // Generate function calling all [ctorFunctions].
             val ctorProto = ctorFunctionSignature.toProto(
                     name = "_Konan_constructors",
@@ -2954,6 +2955,17 @@ internal class CodeGeneratorVisitor(
                     linkage = if (context.config.produce == CompilerOutputKind.PROGRAM) LLVMLinkage.LLVMExternalLinkage else LLVMLinkage.LLVMPrivateLinkage
             )
             val globalCtorCallable = generateFunctionNoRuntime(codegen, ctorProto) {
+                // PGO 插桩模式下，在所有初始化函数之前先调用 __llvm_profile_initialize
+                // 确保 profile 运行时在任何插桩代码执行前完成初始化
+                val pgoInstrumentPath = context.config.configuration.get(KonanConfigKeys.PROFILE_GENERATE)
+                if (pgoInstrumentPath != null) {
+                    val profileInitProto = ctorFunctionSignature.toProto(
+                            "__llvm_profile_initialize", null, LLVMLinkage.LLVMExternalLinkage
+                    )
+                    val profileInitFunc = llvm.externalFunction(profileInitProto)
+                    call(profileInitFunc, emptyList(), Lifetime.IRRELEVANT,
+                            exceptionHandler = ExceptionHandler.Caller, verbatim = true)
+                }
                 ctorFunctions.forEach {
                     call(it, emptyList(), Lifetime.IRRELEVANT,
                             exceptionHandler = ExceptionHandler.Caller, verbatim = true)

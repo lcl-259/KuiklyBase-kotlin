@@ -458,6 +458,27 @@ The default value is 1."""
     )
     var manifestNativeTargets: Array<String>? = null
 
+    // PGO Support
+    @Argument(
+        value = "-Xprofile-generate",
+        valueDescription = "<path>",
+        description = "Enable profile generation and specify output directory for profile data."
+    )
+    var profileGenerate: String? = null
+
+    @Argument(
+        value = "-Xprofile-use",
+        valueDescription = "<path>",
+        description = "Use profile data from the specified file for optimization."
+    )
+    var profileUse: String? = null
+
+    @Argument(
+        value = "-Xpgo-sample",
+        description = "Enable sample-based PGO instrumentation."
+    )
+    var pgoSample: Boolean = false
+
     override fun configureAnalysisFlags(collector: MessageCollector, languageVersion: LanguageVersion): MutableMap<AnalysisFlag<*>, Any> =
         super.configureAnalysisFlags(collector, languageVersion).also {
             val optInList = it[AnalysisFlags.optIn] as List<*>

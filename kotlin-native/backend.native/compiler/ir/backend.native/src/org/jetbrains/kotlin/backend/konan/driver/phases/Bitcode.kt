@@ -95,6 +95,18 @@ internal val LTOBitcodeOptimizationPhase = optimizationPipelinePass(
         pipeline = ::LTOOptimizationPipeline
 )
 
+internal val PGOInstrumentationPhase = optimizationPipelinePass(
+        name = "PGOInstrumentation",
+        description = "Add PGO instrumentation for profile collection",
+        pipeline = ::PGOInstrumentationPipeline,
+)
+
+internal val PGOOptimizationPhase = optimizationPipelinePass(
+        name = "PGOOptimization",
+        description = "Apply PGO-guided optimizations",
+        pipeline = ::PGOOptimizationPipeline,
+)
+
 internal val ThreadSanitizerPhase = optimizationPipelinePass(
         name = "ThreadSanitizer",
         description = "Prepare to run with thread sanitizer",
@@ -156,8 +168,22 @@ internal fun <T : BitcodePostProcessingContext> PhaseEngine<T>.runBitcodePostPro
     useContext(OptimizationState(context.config, optimizationConfig)) {
         val module = this@runBitcodePostProcessing.context.llvmModule
         it.runPhase(MandatoryBitcodeLLVMPostprocessingPhase, module)
-        it.runPhase(ModuleBitcodeOptimizationPhase, module)
-        it.runPhase(LTOBitcodeOptimizationPhase, module)
+        
+        // PGO instrumentation phase (if enabled)
+        System.err.println("[PGO] pgoInstrumentPath=${optimizationConfig.pgoInstrumentPath}, pgoSample=${optimizationConfig.pgoSample}")
+        if (optimizationConfig.pgoInstrumentPath != null || optimizationConfig.pgoSample) {
+            it.runPhase(PGOInstrumentationPhase, module)
+        }
+        
+        // PGO optimization phase (if profile data available)
+        if (optimizationConfig.pgoUsePath != null) {
+            it.runPhase(PGOOptimizationPhase, module)
+        } else {
+            // Standard optimization phases when not using PGO
+            it.runPhase(ModuleBitcodeOptimizationPhase, module)
+            it.runPhase(LTOBitcodeOptimizationPhase, module)
+        }
+        
         when (context.config.sanitizer) {
             SanitizerKind.THREAD -> it.runPhase(ThreadSanitizerPhase, module)
             SanitizerKind.ADDRESS -> context.reportCompilationError("Address sanitizer is not supported yet")

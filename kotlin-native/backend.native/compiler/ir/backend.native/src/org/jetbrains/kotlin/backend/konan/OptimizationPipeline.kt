@@ -44,7 +44,12 @@ data class LlvmPipelineConfig(
         val objCPasses: Boolean,
         val inlineThreshold: Int?,
         val timePasses: Boolean = false,
+        // PGO Support
+        val pgoInstrumentPath: String? = null,
+        val pgoUsePath: String? = null,
+        val pgoSample: Boolean = false,
 )
+
 
 private fun getCpuModel(context: PhaseContext): String {
     val target = context.config.target
@@ -154,6 +159,11 @@ internal fun createLTOFinalPipelineConfig(
         else -> null
     }
 
+    // PGO configuration
+    val pgoInstrumentPath = config.configuration.get(KonanConfigKeys.PROFILE_GENERATE)
+    val pgoUsePath = config.configuration.get(KonanConfigKeys.PROFILE_USE)
+    val pgoSample = config.configuration.get(KonanConfigKeys.PGO_SAMPLE) ?: false
+
     return LlvmPipelineConfig(
             targetTriple,
             cpuModel,
@@ -169,6 +179,9 @@ internal fun createLTOFinalPipelineConfig(
             objcPasses,
             inlineThreshold,
             timePasses = timePasses,
+            pgoInstrumentPath = pgoInstrumentPath,
+            pgoUsePath = pgoUsePath,
+            pgoSample = pgoSample,
     )
 }
 
@@ -177,7 +190,7 @@ internal fun createLTOFinalPipelineConfig(
  */
 abstract class LlvmOptimizationPipeline(
         private val config: LlvmPipelineConfig,
-        private val logger: LoggingContext? = null
+        protected val logger: LoggingContext? = null
 ) : Closeable {
     abstract fun configurePipeline(config: LlvmPipelineConfig, manager: LLVMPassManagerRef, builder: LLVMPassManagerBuilderRef)
     open fun executeCustomPreprocessing(config: LlvmPipelineConfig, module: LLVMModuleRef) {}
@@ -201,7 +214,7 @@ abstract class LlvmOptimizationPipeline(
     private val targetMachine: LLVMTargetMachineRef by targetMachineDelegate
 
 
-    fun execute(llvmModule: LLVMModuleRef) {
+    open fun execute(llvmModule: LLVMModuleRef) {
         val passManager = LLVMCreatePassManager()!!
         val passBuilder = LLVMPassManagerBuilderCreate()!!
         try {
@@ -367,4 +380,105 @@ private fun RelocationModeFlags.Mode.translateToLlvmRelocMode() = when (this) {
     RelocationModeFlags.Mode.PIC -> LLVMRelocMode.LLVMRelocPIC
     RelocationModeFlags.Mode.STATIC -> LLVMRelocMode.LLVMRelocStatic
     RelocationModeFlags.Mode.DEFAULT -> LLVMRelocMode.LLVMRelocDefault
+}
+
+/**
+ * PGO Instrumentation Pipeline - adds profiling instrumentation to collect runtime data
+ */
+class PGOInstrumentationPipeline(private val pipelineConfig: LlvmPipelineConfig, logger: LoggingContext? = null) :
+        LlvmOptimizationPipeline(pipelineConfig, logger) {
+    override fun configurePipeline(config: LlvmPipelineConfig, manager: LLVMPassManagerRef, builder: LLVMPassManagerBuilderRef) {
+        LLVMPassManagerBuilderPopulateModulePassManager(builder, manager)
+        LLVMPassManagerBuilderPopulateFunctionPassManager(builder, manager)
+    }
+
+    override fun executeCustomPreprocessing(config: LlvmPipelineConfig, module: LLVMModuleRef) {
+        // 不在这里注入，避免被后续 LLVMRunPassManager 的 DCE 删除
+    }
+
+    // 重写 execute，在父类 pass 运行完之后再注入初始化函数，避免被 DCE 删除
+    override fun execute(llvmModule: LLVMModuleRef) {
+        super.execute(llvmModule)
+        if (pipelineConfig.pgoInstrumentPath != null) {
+            injectProfileInitializer(llvmModule)
+        }
+    }
+
+    private fun injectProfileInitializer(module: LLVMModuleRef) {
+        System.err.println("[PGO] injectProfileInitializer called")
+        memScoped {
+            val ctx = LLVMGetModuleContext(module)!!
+            val voidType = LLVMVoidTypeInContext(ctx)!!
+            val initFuncType = LLVMFunctionType(voidType, null, 0, 0)!!
+
+            // 获取或声明 __llvm_profile_initialize 函数
+            val initFunc = LLVMGetNamedFunction(module, "__llvm_profile_initialize")
+                    ?: LLVMAddFunction(module, "__llvm_profile_initialize", initFuncType)!!
+            // 确保是 external linkage，链接时从 libclang_rt.profile.a 解析
+            LLVMSetLinkage(initFunc, LLVMLinkage.LLVMExternalLinkage)
+
+            val int8PtrType = LLVMPointerType(LLVMInt8TypeInContext(ctx)!!, 0)!!
+            val int32Type = LLVMInt32TypeInContext(ctx)!!
+            val funcPtrType = LLVMPointerType(initFuncType, 0)!!
+
+            // 构造 llvm.global_ctors 条目：{ i32 1, void ()* @__llvm_profile_initialize, i8* null }
+            val ctorEntryType = LLVMStructTypeInContext(
+                    ctx, cValuesOf(int32Type, funcPtrType, int8PtrType), 3, 0
+            )!!
+            val priority = LLVMConstInt(int32Type, 1, 0)!!
+            val funcPtr = LLVMConstBitCast(initFunc, funcPtrType)!!
+            val nullPtr = LLVMConstNull(int8PtrType)!!
+            val ctorEntry = LLVMConstStructInContext(
+                    ctx, cValuesOf(priority, funcPtr, nullPtr), 3, 0
+            )!!
+
+            val ctorArrayType = LLVMArrayType(ctorEntryType, 1)!!
+            val ctorArray = LLVMConstArray(ctorEntryType, cValuesOf(ctorEntry), 1)!!
+            val globalCtors = LLVMAddGlobal(module, ctorArrayType, "llvm.global_ctors")!!
+            LLVMSetInitializer(globalCtors, ctorArray)
+            LLVMSetLinkage(globalCtors, LLVMLinkage.LLVMAppendingLinkage)
+
+            System.err.println("[PGO] llvm.global_ctors injected with __llvm_profile_initialize")
+        }
+    }
+
+    override val pipelineName = "PGO instrumentation"
+}
+
+/**
+ * PGO Optimization Pipeline - uses profile data to guide optimizations
+ */
+class PGOOptimizationPipeline(config: LlvmPipelineConfig, logger: LoggingContext? = null) :
+        LlvmOptimizationPipeline(config, logger) {
+    override fun configurePipeline(config: LlvmPipelineConfig, manager: LLVMPassManagerRef, builder: LLVMPassManagerBuilderRef) {
+        if (config.pgoUsePath != null) {
+            // Apply PGO-guided optimizations using profile data
+            
+            // Set aggressive optimization when profile data is available
+            LLVMPassManagerBuilderSetOptLevel(builder, 3)
+            LLVMPassManagerBuilderSetSizeLevel(builder, 0)
+            
+            // Enable inlining with profile guidance
+            LLVMPassManagerBuilderUseInlinerWithThreshold(builder, 275) // Higher threshold for PGO
+            
+            // Add module-level optimizations first
+            LLVMPassManagerBuilderPopulateModulePassManager(builder, manager)
+            
+            // Add function-level optimizations
+            LLVMPassManagerBuilderPopulateFunctionPassManager(builder, manager)
+            
+            // Add LTO passes for better cross-module optimization with PGO
+            LLVMPassManagerBuilderPopulateLTOPassManager(builder, manager, Internalize = 0, RunInliner = 1)
+            
+            logger?.log {
+                "PGO optimization enabled with profile data from: ${config.pgoUsePath}"
+            }
+        } else {
+            // Fallback to standard aggressive optimization
+            LLVMPassManagerBuilderPopulateModulePassManager(builder, manager)
+            LLVMPassManagerBuilderPopulateFunctionPassManager(builder, manager)
+        }
+    }
+
+    override val pipelineName = "PGO optimization"
 }

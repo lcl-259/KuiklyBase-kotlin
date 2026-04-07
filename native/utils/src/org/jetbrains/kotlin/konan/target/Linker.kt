@@ -191,6 +191,21 @@ class OhosLinker(targetProperties: OhosConfigurables) : LinkerFlags(targetProper
     override val useCompilerDriverAsLinker: Boolean get() = true
 
     override fun filterStaticLibraries(binaries: List<String>) = binaries.filter { it.isUnixStaticLib }
+    
+    override fun provideCompilerRtLibrary(libraryName: String, isDynamic: Boolean): String? {
+        require(!isDynamic) {
+            "Dynamic compiler rt libraries are unsupported"
+        }
+        val clangDir = File("$absoluteLlvmHome/lib/clang/")
+        if (!clangDir.exists || !clangDir.isDirectory) return null
+        val clangSubDirs = clangDir.listFiles.filter { it.isDirectory }
+        val clangdir = clangSubDirs.firstOrNull()?.absolutePath ?: return null
+        val libDir = File("$clangdir/lib/")
+        if (!libDir.exists || !libDir.isDirectory) return null
+        val libSubDirs = libDir.listFiles.filter { it.isDirectory }
+        val libdir = libSubDirs.firstOrNull()?.absolutePath ?: return null
+        return "$libdir/libclang_rt.$libraryName.a"
+    }
 
     override fun LinkerArguments.finalLinkCommands(): List<Command> {
         require(sanitizer == null) {
@@ -256,7 +271,10 @@ class MacOSBasedLinker(targetProperties: AppleConfigurables)
     private val dsymutil = "$absoluteTargetToolchain/bin/dsymutil"
 
     private val compilerRtDir: String? by lazy {
-        val dir = File("$absoluteTargetToolchain/lib/clang/").listFiles.firstOrNull()?.absolutePath
+        val clangDir = File("$absoluteTargetToolchain/lib/clang/")
+        if (!clangDir.exists || !clangDir.isDirectory) return@lazy null
+        val clangSubDirs = clangDir.listFiles.filter { it.isDirectory }
+        val dir = clangSubDirs.firstOrNull()?.absolutePath
         if (dir != null) "$dir/lib/darwin/" else null
     }
 
@@ -450,10 +468,17 @@ class GccBasedLinker(targetProperties: GccConfigurables)
             "Dynamic compiler rt librares are unsupported"
         }
         // Flexibility required in upgrade from LLVM-11 to LLVM-16
-        val clangdir = File("$absoluteLlvmHome/lib/clang/").listFiles.firstOrNull()?.absolutePath ?: return null
-        val libdir = File("$clangdir/lib/").listFiles.firstOrNull()?.absolutePath ?: return null
+        val clangDir = File("$absoluteLlvmHome/lib/clang/")
+        if (!clangDir.exists || !clangDir.isDirectory) return null
+        val clangSubDirs = clangDir.listFiles.filter { it.isDirectory }
+        val clangdir = clangSubDirs.firstOrNull()?.absolutePath ?: return null
+        val libDir = File("$clangdir/lib/")
+        if (!libDir.exists || !libDir.isDirectory) return null
+        val libSubDirs = libDir.listFiles.filter { it.isDirectory }
+        val libdir = libSubDirs.firstOrNull()?.absolutePath ?: return null
         val llvm11lib = File("$libdir/libclang_rt.$libraryName-x86_64.a")
-        return if (llvm11lib.exists) llvm11lib.absolutePath else "$libdir/libclang_rt.$libraryName.a"
+        val fileExists = try { llvm11lib.exists } catch (e: Exception) { false }
+        return if (fileExists) llvm11lib.absolutePath else "$libdir/libclang_rt.$libraryName.a"
     }
 
     override fun filterStaticLibraries(binaries: List<String>) = binaries.filter { it.isUnixStaticLib }
@@ -538,7 +563,10 @@ class MingwLinker(targetProperties: MingwConfigurables)
             KonanTarget.MINGW_X64 -> "x86_64"
             else -> error("$target is not supported.")
         }
-        val dir = File("$absoluteLlvmHome/lib/clang/").listFiles.firstOrNull()?.absolutePath
+        val clangDir = File("$absoluteLlvmHome/lib/clang/")
+        if (!clangDir.exists || !clangDir.isDirectory) return null
+        val clangSubDirs = clangDir.listFiles.filter { it.isDirectory }
+        val dir = clangSubDirs.firstOrNull()?.absolutePath
         return if (dir != null) "$dir/lib/windows/libclang_rt.$libraryName-$targetSuffix.a" else null
     }
 

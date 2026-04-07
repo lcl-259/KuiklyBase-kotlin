@@ -158,6 +158,10 @@ class KonanConfigKeys {
         // region Tencent Code
         val OBJC_EXPORT_CONFIG_FILE_PATH: CompilerConfigurationKey<String?> = CompilerConfigurationKey.create("objC export configuration file path.")
         val ENABLE_OBJC_EXPORT_CONFIGURATION: CompilerConfigurationKey<Boolean> = CompilerConfigurationKey.create(" objc use default export")
+        // PGO Support
+        val PROFILE_GENERATE: CompilerConfigurationKey<String?> = CompilerConfigurationKey.create("enable profile generation and specify output directory")
+        val PROFILE_USE: CompilerConfigurationKey<String?> = CompilerConfigurationKey.create("use profile data for optimization")
+        val PGO_SAMPLE: CompilerConfigurationKey<Boolean> = CompilerConfigurationKey.create("enable sample-based PGO")
         // endregion
     }
 }
