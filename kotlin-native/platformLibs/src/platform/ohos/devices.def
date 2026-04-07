@@ -48,3 +48,5 @@ headers = ConnectivityKit/bluetooth/oh_bluetooth.h \
           ohcamera/video_output.h \
           ohcamera/preview_output.h \
           ohcamera/photo_native.h
+language = C++
+compilerOpts = -std=c++17
