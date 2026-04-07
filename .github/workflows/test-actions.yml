@@ -1,0 +1,24 @@
+# 给工作流起个名字
+name: test-actions
+
+# 触发条件：代码推送到任何分支时执行
+on: [push]
+
+# 定义要执行的任务（Job）
+jobs:
+  # 任务1：名叫 say-hello
+  say-hello:
+    # 运行环境：用 GitHub 免费的 Ubuntu 最新版
+    runs-on: ubuntu-latest
+
+    # 任务里的具体步骤（Step）
+    steps:
+      # 步骤1：打印一句话
+      - name: Say Hello
+        run: echo "Hello, GitHub Actions!"
+
+      # 步骤2：打印系统信息
+      - name: Check system info
+        run: |
+          echo "正在运行的系统："
+          uname -a
