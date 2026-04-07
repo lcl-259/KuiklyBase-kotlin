@@ -37,4 +37,4 @@ jobs:
 
       # 用系统默认 Xcode 执行编译，避免依赖特定版本路径
       - name: 编译 kotlin-native dist
-        run: ./gradlew :kotlin-native:dist
+        run: DEVELOPER_DIR=/Applications/Xcode-15.0.app/Contents/Developer ./gradlew :kotlin-native:dist
