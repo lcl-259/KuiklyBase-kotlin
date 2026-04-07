@@ -4,7 +4,7 @@ name: test-actions
 # 触发条件：代码推送到任何分支时执行
 on: [push]
 
-# 定义要执行的任务（Job）
+# 定义要执行的任务（Job），多个 job 默认并行执行
 jobs:
   # 任务1：名叫 say-hello
   say-hello:
@@ -22,3 +22,19 @@ jobs:
         run: |
           echo "正在运行的系统："
           uname -a
+
+  # 任务2：编译 kotlin-native dist，需要 macOS + Xcode 环境
+  build-kotlin-native:
+    runs-on: macos-latest
+    steps:
+      # 拉取代码
+      # - name: 检出代码
+      #   uses: actions/checkout@v4
+
+      # # 列出可用的 Xcode 版本，确认环境
+      # - name: 查看可用 Xcode 版本
+      #   run: ls /Applications/ | grep Xcode
+
+      # 用系统默认 Xcode 执行编译，避免依赖特定版本路径
+      - name: 编译 kotlin-native dist
+        run: ./gradlew :kotlin-native:dist
